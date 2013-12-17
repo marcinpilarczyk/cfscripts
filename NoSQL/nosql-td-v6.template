@@ -194,9 +194,6 @@
 		  "URL=`curl -s http://169.254.169.254/latest/meta-data/local-ipv4`\n",
 		  "echo \"export KVDEMOHOME=/home/nosql/nosql-demo\" >> /home/nosql/.bash_profile\n",
 		  "echo \"export KVHOME=/oracle/app\" >> /home/nosql/.bash_profile\n",
-		  "wget https://s3.amazonaws.com/orb-nosql/nosql-demo.tar.gz -O /home/nosql\n",
-		  "tar xvzf /home/nosql/nosql-demo.tar.gz -C /home/nosql\n",
-		  "chown -R nosql /home/nosql-demo\n",
 		  "java -jar /oracle/app/lib/kvstore.jar makebootconfig -root /oracle/data -port 5000 -admin 5001 -host $URL -harange 5010,5100\n",
 		  "# Start SNA\n",
 		  "nohup java -jar /oracle/app/lib/kvstore.jar start -root /oracle/data&\n",
@@ -218,7 +215,10 @@
 		  "echo \"plan deploy-topology -name TestTopology -wait -force\" >> /oracle/script\n",
 		  "echo \"quit\" >> /oracle/script\n",
 		  "echo \"### End Script ###\" >> /oracle/script\n",
-		  "sleep 120\n",
+		  "sleep 90\n",
+		  "wget https://s3.amazonaws.com/orb-nosql/nosql-demo.tar.gz -O /home/nosql\n",
+		  "tar xvzf /home/nosql/nosql-demo.tar.gz -C /home/nosql\n",
+		  "chown -R nosql /home/nosql-demo\n",
 		  "java -jar /oracle/app/lib/kvstore.jar runadmin -port 5000 -host $URL load -file /oracle/script\n"
         ]]}}
       }
