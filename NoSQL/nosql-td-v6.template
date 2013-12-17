@@ -215,10 +215,12 @@
 		  "echo \"plan deploy-topology -name TestTopology -wait -force\" >> /oracle/script\n",
 		  "echo \"quit\" >> /oracle/script\n",
 		  "echo \"### End Script ###\" >> /oracle/script\n",
-		  "sleep 90\n",
-		  "wget https://s3.amazonaws.com/orb-nosql/nosql-demo.tar.gz -O /home/nosql\n",
+		  "sleep 30\n",
+		  "wget https://s3.amazonaws.com/orb-nosql/nosql-demo.tar.gz -O /home/nosql/nosql-demo.tar.gz\n",
 		  "tar xvzf /home/nosql/nosql-demo.tar.gz -C /home/nosql\n",
+		  "rm -rf nosql-demo.tar.gz\n",
 		  "chown -R nosql /home/nosql-demo\n",
+		  "sleep 90\n",
 		  "java -jar /oracle/app/lib/kvstore.jar runadmin -port 5000 -host $URL load -file /oracle/script\n"
         ]]}}
       }
