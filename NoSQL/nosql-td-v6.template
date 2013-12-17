@@ -1,0 +1,263 @@
+{
+  "AWSTemplateFormatVersion" : "2010-09-09",
+
+  "Description" : "3-node Oracle NoSQL shard.",
+
+  "Resources" : {
+
+    "VPC" : {
+      "Type" : "AWS::EC2::VPC",
+      "Properties" : {
+        "CidrBlock" : "10.0.0.0/16",
+		"EnableDnsSupport" : "true",
+    	"EnableDnsHostnames" : "true",
+        "Tags" : [ {"Key" : "Application", "Value" : { "Ref" : "AWS::StackId"} } ]
+      }
+    },
+
+    "Subnet" : {
+      "Type" : "AWS::EC2::Subnet",
+      "Properties" : {
+        "VpcId" : { "Ref" : "VPC" },
+        "CidrBlock" : "10.0.0.0/24",
+        "Tags" : [ {"Key" : "Application", "Value" : { "Ref" : "AWS::StackId"} } ]
+      }
+    },
+
+    "InternetGateway" : {
+      "Type" : "AWS::EC2::InternetGateway",
+      "Properties" : {
+        "Tags" : [ {"Key" : "Application", "Value" : { "Ref" : "AWS::StackId"} } ]
+      }
+    },
+
+    "AttachGateway" : {
+       "Type" : "AWS::EC2::VPCGatewayAttachment",
+       "Properties" : {
+         "VpcId" : { "Ref" : "VPC" },
+         "InternetGatewayId" : { "Ref" : "InternetGateway" }
+       }
+    },
+
+    "RouteTable" : {
+      "Type" : "AWS::EC2::RouteTable",
+      "Properties" : {
+        "VpcId" : {"Ref" : "VPC"},
+        "Tags" : [ {"Key" : "Application", "Value" : { "Ref" : "AWS::StackId"} } ]
+      }
+    },
+
+    "Route" : {
+      "Type" : "AWS::EC2::Route",
+      "DependsOn" : "AttachGateway",
+      "Properties" : {
+        "RouteTableId" : { "Ref" : "RouteTable" },
+        "DestinationCidrBlock" : "0.0.0.0/0",
+        "GatewayId" : { "Ref" : "InternetGateway" }
+      }
+    },
+
+    "SubnetRouteTableAssociation" : {
+      "Type" : "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties" : {
+        "SubnetId" : { "Ref" : "Subnet" },
+        "RouteTableId" : { "Ref" : "RouteTable" }
+      }
+    },
+
+    "NetworkAcl" : {
+      "Type" : "AWS::EC2::NetworkAcl",
+      "Properties" : {
+        "VpcId" : {"Ref" : "VPC"},
+        "Tags" : [ {"Key" : "Application", "Value" : { "Ref" : "AWS::StackId"} } ]
+      }
+    },
+
+    "InboundResponsePortsNetworkAclEntry" : {
+      "Type" : "AWS::EC2::NetworkAclEntry",
+      "Properties" : {
+        "NetworkAclId" : {"Ref" : "NetworkAcl"},
+        "RuleNumber" : "102",
+        "Protocol" : "6",
+        "RuleAction" : "allow",
+        "Egress" : "false",
+        "CidrBlock" : "0.0.0.0/0",
+        "PortRange" : {"From" : "1", "To" : "65535"}
+      }
+    },
+
+    "OutBoundResponsePortsNetworkAclEntry" : {
+      "Type" : "AWS::EC2::NetworkAclEntry",
+      "Properties" : {
+        "NetworkAclId" : {"Ref" : "NetworkAcl"},
+        "RuleNumber" : "102",
+        "Protocol" : "6",
+        "RuleAction" : "allow",
+        "Egress" : "true",
+        "CidrBlock" : "0.0.0.0/0",
+        "PortRange" : {"From" : "1", "To" : "65535"}
+      }
+    },
+
+    "SubnetNetworkAclAssociation" : {
+      "Type" : "AWS::EC2::SubnetNetworkAclAssociation",
+      "Properties" : {
+        "SubnetId" : { "Ref" : "Subnet" },
+        "NetworkAclId" : { "Ref" : "NetworkAcl" }
+      }
+    },
+
+    "InstanceSecurityGroup" : {
+      "Type" : "AWS::EC2::SecurityGroup",
+      "Properties" : {
+        "VpcId" : { "Ref" : "VPC" },
+        "GroupDescription" : "SSH and tcp5001 access",
+        "SecurityGroupIngress" : [
+          {"IpProtocol" : "tcp", "FromPort" : "22", "ToPort" : "22", "CidrIp" : "0.0.0.0/0"},
+          { "IpProtocol" : "tcp", "FromPort" : "5001", "ToPort" : "5001", "CidrIp" : "0.0.0.0/0"}
+         ]
+      }
+    },
+	
+	"SGIngress": {
+            "Type": "AWS::EC2::SecurityGroupIngress",
+            "Properties": {
+                "GroupId": { "Ref": "InstanceSecurityGroup" },
+                "IpProtocol": "tcp",
+                "FromPort": "1",
+                "ToPort": "65535",
+                "SourceSecurityGroupId": { "Ref": "InstanceSecurityGroup" }
+            }
+		},
+        
+	
+	  "Slave1Instance" : {
+      "Type" : "AWS::EC2::Instance",
+      "Properties" : {
+        "ImageId" : "ami-f9c8e890",
+        "SecurityGroupIds" : [{ "Ref" : "InstanceSecurityGroup" }],
+        "SubnetId" : { "Ref" : "Subnet" },
+        "InstanceType" : "m1.small",
+        "KeyName" : "testdrive",
+        "Tags" : [ {"Key" : "Application", "Value" : { "Ref" : "AWS::StackId"} }, {"Key" : "Name", "Value" : "Node1 - Slave" } ],
+        "UserData"       : { "Fn::Base64" : { "Fn::Join" : ["", [
+          "#!/bin/bash\n",
+          "yum update -y aws-cfn-bootstrap\n",
+		  "# NoSQL node configuration\n",
+		  "URL=`curl -s http://169.254.169.254/latest/meta-data/local-ipv4`\n",
+		  "java -jar /oracle/app/lib/kvstore.jar makebootconfig -root /oracle/data -port 5000 -admin 5001 -host $URL -harange 5010,5100\n",
+		  "# Start SNA\n",
+		  "nohup java -jar /oracle/app/lib/kvstore.jar start -root /oracle/data&\n"
+        ]]}}
+      }
+	  },
+	  
+	  "Slave2Instance" : {
+      "Type" : "AWS::EC2::Instance",
+      "Properties" : {
+        "ImageId" : "ami-f9c8e890",
+        "SecurityGroupIds" : [{ "Ref" : "InstanceSecurityGroup" }],
+        "SubnetId" : { "Ref" : "Subnet" },
+        "InstanceType" : "m1.small",
+        "KeyName" : "testdrive",
+        "Tags" : [ {"Key" : "Application", "Value" : { "Ref" : "AWS::StackId"} }, {"Key" : "Name", "Value" : "Node2 - Slave" }  ],
+        "UserData"       : { "Fn::Base64" : { "Fn::Join" : ["", [
+          "#!/bin/bash\n",
+          "yum update -y aws-cfn-bootstrap\n",
+		  "# NoSQL node configuration\n",
+		  "URL=`curl -s http://169.254.169.254/latest/meta-data/local-ipv4`\n",
+		  "java -jar /oracle/app/lib/kvstore.jar makebootconfig -root /oracle/data -port 5000 -admin 5001 -host $URL -harange 5010,5100\n",
+		  "# Start SNA\n",
+		  "nohup java -jar /oracle/app/lib/kvstore.jar start -root /oracle/data&\n"
+		   ]]}}
+      }
+	  },
+	
+    "MasterInstance" : {
+      "Type" : "AWS::EC2::Instance",
+	    "DependsOn" : ["Slave1Instance","Slave2Instance"],
+        "Properties" : {
+        "ImageId" : "ami-f9c8e890",
+        "SecurityGroupIds" : [{ "Ref" : "InstanceSecurityGroup" }],
+        "SubnetId" : { "Ref" : "Subnet" },
+        "InstanceType" : "m1.small",
+        "KeyName" : "testdrive",
+        "Tags" : [ {"Key" : "Application", "Value" : { "Ref" : "AWS::StackId"} }, {"Key" : "Name", "Value" : "Node3 - Master" }  ],
+        "UserData"       : { "Fn::Base64" : { "Fn::Join" : ["", [
+          "#!/bin/bash\n",
+          "yum update -y aws-cfn-bootstrap\n",
+		  "useradd nosql\n",
+		  "echo \"nosql\" | passwd --stdin nosql\n",
+		  "sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config\n",
+		  "service sshd restart\n",
+		  "# NoSQL node configuration\n",
+		  "URL=`curl -s http://169.254.169.254/latest/meta-data/local-ipv4`\n",
+		  "echo \"export KVDEMOHOME=/home/nosql/nosql-demo\" >> /home/nosql/.bash_profile\n",
+		  "echo \"export KVHOME=/oracle/app\" >> /home/nosql/.bash_profile\n",
+		  "wget https://s3.amazonaws.com/orb-nosql/nosql-demo.tar.gz -O /home/nosql\n",
+		  "tar xvzf /home/nosql/nosql-demo.tar.gz -C /home/nosql\n",
+		  "chown -R nosql /home/nosql-demo\n",
+		  "java -jar /oracle/app/lib/kvstore.jar makebootconfig -root /oracle/data -port 5000 -admin 5001 -host $URL -harange 5010,5100\n",
+		  "# Start SNA\n",
+		  "nohup java -jar /oracle/app/lib/kvstore.jar start -root /oracle/data&\n",
+		  "# Configure KVStore\n",
+		  "echo \"### Begin Script ###\" >> /oracle/script\n",
+		  "echo \"configure -name TestKVstore\" >> /oracle/script\n",
+		  "echo \"plan deploy-datacenter -name TestDataCenter -rf 3 -wait -force\" >> /oracle/script\n",
+		  "echo \"plan deploy-sn -dc dc1 -host $URL -port 5000 -wait -force\" >> /oracle/script\n",
+		  "echo \"plan deploy-admin -sn sn1 -port 5001 -wait -force\" >> /oracle/script\n",
+		  "echo \"pool create -name TestPool\" >> /oracle/script\n",
+		  "echo \"pool join -name TestPool -sn sn1\" >> /oracle/script\n",
+		  "echo \"plan deploy-sn -dc dc1 -host ",{ "Fn::GetAtt" : ["Slave1Instance", "PrivateIp"] }, " -port 5000 -wait\" >> /oracle/script\n",
+		  "echo \"plan deploy-admin -sn sn2 -port 5001 -wait -force\" >> /oracle/script\n",
+		  "echo \"pool join -name TestPool -sn sn2\" >> /oracle/script\n",
+		  "echo \"plan deploy-sn -dc dc1 -host ",{ "Fn::GetAtt" : ["Slave2Instance", "PrivateIp"] }, " -port 5000 -wait\" >> /oracle/script\n",
+		  "echo \"plan deploy-admin -sn sn3 -port 5001 -wait -force\" >> /oracle/script\n",
+		  "echo \"pool join -name TestPool -sn sn3\" >> /oracle/script\n",
+		  "echo \"topology create -name TestTopology -pool TestPool -partitions 300\" >> /oracle/script\n",
+		  "echo \"plan deploy-topology -name TestTopology -wait -force\" >> /oracle/script\n",
+		  "echo \"quit\" >> /oracle/script\n",
+		  "echo \"### End Script ###\" >> /oracle/script\n",
+		  "sleep 120\n",
+		  "java -jar /oracle/app/lib/kvstore.jar runadmin -port 5000 -host $URL load -file /oracle/script\n"
+        ]]}}
+      }
+    },
+	
+	  "IPAddress" : {
+      "Type" : "AWS::EC2::EIP",
+      "DependsOn" : ["AttachGateway","MasterInstance"],
+      "Properties" : {
+        "Domain" : "vpc",
+        "InstanceId" : { "Ref" : "MasterInstance" }
+      }
+    }
+   }, 
+
+  "Outputs" : {
+    "URL" : {
+      "Value" : { "Fn::Join" : [ "", ["http://", { "Fn::GetAtt" : ["MasterInstance", "PublicIp"] }, ":5001"]]},
+      "Description" : "NoSQL Topology View"
+    },
+	"SSHAccess" : {
+      "Value" : { "Fn::GetAtt" : ["MasterInstance", "PublicIp"] },
+	  "Description" : "SSH host for KVShell access"
+    },
+	"Username" : {
+      "Value" : "nosql",
+	  "Description" : "SSH Login"
+    },
+	"Password" : {
+      "Value" : "nosql",
+	  "Description" : "SSH Password"
+    },
+	"Instructions" : { 
+      "Value" : { "Fn::Join": ["", [
+	  "Please allow 5 minutes for the servers to launch and the services to be completely started.\n",
+	  "Any data that you upload will be deleted and/or made inaccessible at the end of the session.\n",
+	  "Please do not upload any sensitive data into this Test Drive lab session.\n"
+	  ]]},
+	  "Description" : "Instructions"
+    }
+  }
+}
